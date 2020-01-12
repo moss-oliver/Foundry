@@ -1,0 +1,8 @@
+[workspace]
+
+members = [
+    "example",
+    "foundry_core",
+    "foundry_web",
+    "foundry-macro-html",
+]
