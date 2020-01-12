@@ -14,10 +14,10 @@ foundry-macro-html
 > A proc-macro that parses HTML and outputs valid Rust code at compile-time.
 
 example
-> A demo of the application.
+> A demo application.
 
 ##### API Example:
-```
+``` rust
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
 	  // Create web context.
@@ -32,7 +32,7 @@ pub fn run() -> Result<(), JsValue> {
     };
     let state = Rc::new(State::new(hws));
 
-    // Define component.
+    // Create new component. We provude a state instance, and a closure that is executed when the state changes.
     let root = Component::from_state(state.clone(), move |s| {
         let state_clone = state.clone();
 
@@ -43,6 +43,7 @@ pub fn run() -> Result<(), JsValue> {
             x = html!(<div>"You haven't clicked the button enough."</div>);
         }
 
+        // A macro that is evaluated and transformed to Rust code at compile time.
         html!(<div>
             {x}
             <div>
