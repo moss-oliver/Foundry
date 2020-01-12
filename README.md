@@ -21,7 +21,7 @@ example
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     // Create web context.
-    let context = match foundry_web::create_context("content")?;
+    let context = foundry_web::create_context("content")?;
 
     // Define component state.
     struct HelloWorldState {
