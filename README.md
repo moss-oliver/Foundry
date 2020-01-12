@@ -20,10 +20,10 @@ example
 ``` rust
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
-	  // Create web context.
+    // Create web context.
     let context = match foundry_web::create_context("content")?;
 
-	  // Define component state.
+    // Define component state.
     struct HelloWorldState {
         clicks: i32
     }
