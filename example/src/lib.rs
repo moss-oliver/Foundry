@@ -2,81 +2,74 @@
 extern crate foundry_web;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
-use foundry_core::{State, Component, Value::*};
-use foundry_web::{HtmlNode};
+use foundry_core::{State, Component, Event};
+use foundry_web::HtmlNode;
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
-    let context = match foundry_web::create_context("content") {
-        Ok(c) => c,
-        Err(s) => { return Err(s.into()) }
-    };
+    // Create web context.
+    let context = foundry_web::create_context("content")?;
 
-    #[derive(Debug)]
+    // Define component state.
     struct HelloWorldState {
-        val: i32,
-        text: String,
+        title: String,
         clicks: i32
     }
 
     let hws = HelloWorldState {
-        val: 20,
-        text: "Hello, world!".to_string(),
+        title: "Hello, world!".to_string(),
         clicks: 0,
     };
 
     let state = Rc::new(State::new(hws));
-    let root = Component::from_state(state.clone(), move |s| {
-        let state_clone = state.clone();
 
-        let x :Box<HtmlNode>;
-        if s.clicks > 3
-        {
-            x = html!(
+    let on_click_event = Event::new(&state, move |ci| {
+        let mut state = ci.state.get_mut(); // Creates a mutable reference to the state.
+        state.clicks += 1;
+        // When this code block ends, the mutable reference is deallocated,
+        // and this component is marked for re-rendering.
+    });
+
+    // Create new component. We provide a state instance, and a closure that is executed when the state changes.
+    let root = Component::from_state(state.clone(), move |ri| {
+        let x = if ri.state.clicks > 3 {
+            html!(
                 <div>
-                    "You have clicked the button too many times!"
-                    <div>"..."</div>
+                    You have clicked the button too many times!
+                    <div>...</div>
                 </div>
-            );
+            )
         } else {
-            x = html!(
+            html!(
                 <div>
-                    "You haven't clicked the button enough."
+                    You haven't clicked the button enough.
                 </div>
-            );
-        }
+            )
+        };
 
+        // A macro that is evaluated and transformed to Rust code at compile time.
         html!(<div>
-            {x}
+            <h2>
+                {ri.state.title}
+            </h2>
+            *x
             <div id="script">
-                <div id="green-square" style="background-color: green" onClick={
-                    let state_callback = state_clone.clone();
-                    let mut st = state_callback.get_mut();
-                    st.clicks += 1;
-                }>
+                <div id="green-square" style="background-color: green" onClick=@on_click_event >
                     <span>
-                        "Click me!"
+                        Click me..!
                     </span>
                 </div>
                 <p>
-                    "You've clicked the green square "
+                    You've clicked the green square
                     <span id="num-clicks">
-                        {Box::new(s.clicks.to_string())}
+                        {ri.state.clicks}
                     </span>
-                    " times"
+                    times
                 </p>
             </div>
         </div>)
     });
+
     root.bind_context(context);
-
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
 }
