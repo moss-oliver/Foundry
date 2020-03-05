@@ -87,6 +87,11 @@ impl DomNode<HtmlNodeType> for HtmlNode {
         Some(self.props.clone())
     }
 }
+impl From<HtmlNode> for Box<DomNode<HtmlNodeType>> {
+    fn from(node: HtmlNode) -> Self {
+        Box::new(node)
+    }
+}
 
 impl DomNode<HtmlNodeType> for String {
     fn get_children<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item= &'a Box<dyn DomNode<HtmlNodeType>>> + 'a> {
@@ -97,6 +102,43 @@ impl DomNode<HtmlNodeType> for String {
     }
     fn get_params(&self) -> Option<Rc<Vec<(String, foundry_core::Value)>>> {
         None
+    }
+}
+
+pub trait Boxer<T: Sized> {
+    fn box_it(self) -> Box<T>;
+}
+
+impl Boxer<String> for String {
+    fn box_it(self) -> Box<String> {
+        Box::new(self)
+    }
+}
+impl Boxer<String> for &String {
+    fn box_it(self) -> Box<String> {
+        Box::new(self.clone())
+    }
+}
+impl Boxer<String> for Box<String> {
+    fn box_it(self) -> Box<String> {
+        self
+    }
+}
+
+impl Boxer<HtmlNode> for HtmlNode {
+    fn box_it(self) -> Box<HtmlNode> {
+        Box::new(self)
+    }
+}
+impl Boxer<HtmlNode> for Box<HtmlNode> {
+    fn box_it(self) -> Box<HtmlNode> {
+        self
+    }
+}
+
+impl Boxer<String> for i32 {
+    fn box_it(self) -> Box<String> {
+        Box::new(self.to_string())
     }
 }
 
@@ -135,7 +177,7 @@ impl Context<HtmlNodeType> for WebContext {
                 foundry_core::ReconciliationOperation::<HtmlNodeType>::Remove => {
                     // Debugging code:
                     //console_log!("Removing: {:?}", change);
-                    
+
                     //TODO: remove unwraps
                     //TODO: Delete closure attributes when removing nodes.
                     //Perhaps look up children in a hashmap.
@@ -163,7 +205,7 @@ impl Context<HtmlNodeType> for WebContext {
                             let n = self.document.create_element(&s).unwrap();
 
                             for x in node.1.as_ref().unwrap().iter() {
-                                let node = n.dyn_ref::<HtmlElement>().expect("#green-square be an `HtmlElement`");
+                                let node = n.dyn_ref::<HtmlElement>().expect("Expected an `HtmlElement`");
                                 match &x.1 {
                                     foundry_core::Value::Str(s) => {
                                         node.set_attribute(&x.0, s).unwrap();

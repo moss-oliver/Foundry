@@ -100,9 +100,12 @@ fn html_tag_content(item_iter: &mut dyn Iterator<Item=TokenTree>, tag: String, o
                     output.push_str(",");
                 }
 
-                output.push_str("Box::new(format!(\"{}\", ");
+                /*output.push_str("Box::new(format!(\"{}\", ");
                 output.push_str(&group.stream().to_string());
-                output.push_str("))");
+                output.push_str("))");*/
+                output.push_str("foundry_web::Boxer::box_it(");
+                output.push_str(&group.stream().to_string());
+                output.push_str(")");
             },
             _ => {
                 panic!("Unexpected token 5.")

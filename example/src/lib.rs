@@ -26,6 +26,9 @@ pub fn run() -> Result<(), JsValue> {
     let on_click_event = Event::new(&state, move |ci| {
         let mut state = ci.state.get_mut(); // Creates a mutable reference to the state.
         state.clicks += 1;
+        if state.clicks > 6 {
+            state.title = "Stop clicking the button!".to_string();
+        }
         // When this code block ends, the mutable reference is deallocated,
         // and this component is marked for re-rendering.
     });
@@ -48,26 +51,28 @@ pub fn run() -> Result<(), JsValue> {
         };
 
         // A macro that is evaluated and transformed to Rust code at compile time.
-        html!(<div>
-            <h2>
-                {ri.state.title}
-            </h2>
-            *x
-            <div id="script">
-                <div id="green-square" style="background-color: green" onClick=@on_click_event >
-                    <span>
-                        Click me..!
-                    </span>
+        html!(
+            <div>
+                <h2>
+                    {&ri.state.title}
+                </h2>
+                {x}
+                <div id="script">
+                    <div id="green-square" style="background-color: green" onClick=@on_click_event >
+                        <span>
+                            Click me..!
+                        </span>
+                    </div>
+                    <p>
+                        You've clicked the green square
+                        <span id="num-clicks">
+                            {ri.state.clicks}
+                        </span>
+                        times
+                    </p>
                 </div>
-                <p>
-                    You've clicked the green square
-                    <span id="num-clicks">
-                        {ri.state.clicks}
-                    </span>
-                    times
-                </p>
             </div>
-        </div>)
+        )
     });
 
     root.bind_context(context);
