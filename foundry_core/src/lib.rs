@@ -1,7 +1,7 @@
 use std::ops::Deref;
 use std::ops::DerefMut;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::rc::{Rc, Weak};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::rc::{Rc};
 use std::cell::{RefCell, Ref, RefMut};
 
 pub struct StateMutRef<'a, T> {
@@ -67,17 +67,6 @@ impl<T> State<T> {
     }
 }
 
-/*
-impl<'a, T> Deref for State<T> {
-    type Target = std::sync::RwLockReadGuard<'a, T>;//T;
-
-    fn deref(&'a self) -> &'a Self::Target {
-        let x = self.value.read().expect("Lock is poisoned");
-        &x
-    }
-}
-*/
-
 pub enum Value {
     Str(String),
     Event((Rc<dyn Fn()>, u64) ),
@@ -111,7 +100,7 @@ impl<S: 'static, F: Fn(CallbackInfo<S>) + 'static> std::convert::From<Rc<Event<S
     }
 }
 
-static mut event_id_counter: u64 = 0;
+static mut EVENT_ID_COUNTER: u64 = 0;
 
 pub struct Event<S, F: Fn(CallbackInfo<S>) + 'static> {
     event_id: u64,
@@ -125,8 +114,8 @@ impl<S, F: Fn(CallbackInfo<S>) + 'static> Event<S, F> {
         
         //TODO: remove this unsafe.
         unsafe {
-            event_id = event_id_counter;
-            event_id_counter += 1;
+            event_id = EVENT_ID_COUNTER;
+            EVENT_ID_COUNTER += 1;
         }
 
         Rc::new(Event { event_id, action: Rc::new(action), state: state.clone() })
@@ -175,31 +164,29 @@ pub struct RenderInfo<'a, T> {
     pub state: &'a T
 }
 
-pub trait Context<T: std::cmp::Eq + std::fmt::Debug> { //TODO: this should have a better name.
-    fn set_recent_tree(&mut self, tree: Option<Box<dyn DomNode<T>>>);
-    fn get_recent_tree(&self) -> Option<&Box<dyn DomNode<T>>>;
-    fn commit_changes(&mut self, changes: Vec<ReconciliationNote<T>>);
+pub trait Context { //TODO: this should have a better name.
+    type Node: std::cmp::Eq + std::fmt::Debug;
+    fn set_recent_tree(&mut self, tree: Option<Box<dyn DomNode<Self::Node>>>);
+    fn get_recent_tree(&self) -> Option<&Box<dyn DomNode<Self::Node>>>;
+    fn commit_changes(&mut self, changes: Vec<ReconciliationNote<Self::Node>>);
 }
-
-pub struct Component<T: std::cmp::Eq + std::fmt::Debug, C: Context<T>, S, F: Fn(RenderInfo<S>) -> Box<dyn DomNode<T>>> {
-    context: Rc<RefCell<Option<C>>>,
-    state: Rc<State<S>>,
-    render_func: F,
+pub struct Component<CONTEXT: Context, STATE> {
+    context: Rc<RefCell<Option<CONTEXT>>>,
+    state: Rc<State<STATE>>,
+    render_func: Box<dyn Fn(RenderInfo<STATE>) -> Box<dyn DomNode<CONTEXT::Node>>>,
     last_redraw: AtomicU32
 }
 
-impl<T: std::cmp::Eq + std::fmt::Debug + 'static, 
-     C: Context<T> + 'static, 
-     S: 'static, 
-     F: Fn(RenderInfo<S>) -> Box<dyn DomNode<T>> + 'static> Component<T, C, S, F> {
-    pub fn new(state_obj: S, render_func: F) -> (Rc<State<S>>, Rc<Component::<T, C, S, F>>) {
+impl<C: Context + 'static,
+     S: 'static> Component<C, S> {
+    pub fn new(state_obj: S, render_func: impl Fn(RenderInfo<S>) -> Box<dyn DomNode<C::Node>> + 'static) -> (Rc<State<S>>, Rc<Component::<C, S>>) {
         let last_redraw = 0;
         let state = Rc::new(State::new(state_obj));
 
         let component = Rc::new(Component {
             context: Rc::new(RefCell::new(Option::None)),
             state: state.clone(),
-            render_func,
+            render_func: Box::new(render_func),
             last_redraw: AtomicU32::new(last_redraw),
         });
 
@@ -211,13 +198,13 @@ impl<T: std::cmp::Eq + std::fmt::Debug + 'static,
         (state.clone(), component)
     }
 
-    pub fn from_state(state: Rc<State<S>>, render_func: F) -> Rc<Component::<T, C, S, F>> {
+    pub fn from_state(state: Rc<State<S>>, render_func: impl Fn(RenderInfo<S>) -> Box<dyn DomNode<C::Node>> + 'static) -> Rc<Component::<C, S>> {
         let last_redraw = 0;
 
         let component = Rc::new(Component {
             context: Rc::new(RefCell::new(Option::None)),
             state: state.clone(),
-            render_func,
+            render_func: Box::new(render_func),
             last_redraw: AtomicU32::new(last_redraw),
         });
 
@@ -261,7 +248,7 @@ impl<T: std::cmp::Eq + std::fmt::Debug + 'static,
     }
 }
 
-impl<C: Context<String>, S, F: Fn(RenderInfo<S>) -> Box<dyn DomNode<String>>> Component<String, C, S, F> {
+impl<C: Context<Node=String>, S> Component<C, S> {
     pub fn render_to_string(&self) -> String {
         let s = self.state.as_ref();
         let g = s.get();

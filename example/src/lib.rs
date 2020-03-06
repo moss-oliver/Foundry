@@ -63,6 +63,7 @@ pub fn run() -> Result<(), JsValue> {
                             Click me..!
                         </span>
                     </div>
+                    
                     <p>
                         You've clicked the green square
                         <span id="num-clicks">

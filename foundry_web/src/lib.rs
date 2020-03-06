@@ -87,7 +87,7 @@ impl DomNode<HtmlNodeType> for HtmlNode {
         Some(self.props.clone())
     }
 }
-impl From<HtmlNode> for Box<DomNode<HtmlNodeType>> {
+impl From<HtmlNode> for Box<dyn DomNode<HtmlNodeType>> {
     fn from(node: HtmlNode) -> Self {
         Box::new(node)
     }
@@ -150,7 +150,9 @@ pub struct WebContext {
     events: HashMap<u64, Closure<dyn FnMut()>>,
 }
 
-impl Context<HtmlNodeType> for WebContext {
+impl Context for WebContext {
+    type Node = HtmlNodeType;
+
     fn set_recent_tree(&mut self, tree: Option<Box<dyn DomNode<HtmlNodeType>>>) {
         self.last_tree = tree;
     }
