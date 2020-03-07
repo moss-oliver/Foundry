@@ -105,39 +105,39 @@ impl DomNode<HtmlNodeType> for String {
     }
 }
 
-pub trait Boxer<T: Sized> {
-    fn box_it(self) -> Box<T>;
+pub trait Boxable<T: Sized> {
+    fn to_box(self) -> Box<T>;
 }
 
-impl Boxer<String> for String {
-    fn box_it(self) -> Box<String> {
+impl Boxable<String> for String {
+    fn to_box(self) -> Box<String> {
         Box::new(self)
     }
 }
-impl Boxer<String> for &String {
-    fn box_it(self) -> Box<String> {
+impl Boxable<String> for &String {
+    fn to_box(self) -> Box<String> {
         Box::new(self.clone())
     }
 }
-impl Boxer<String> for Box<String> {
-    fn box_it(self) -> Box<String> {
+impl Boxable<String> for Box<String> {
+    fn to_box(self) -> Box<String> {
         self
     }
 }
 
-impl Boxer<HtmlNode> for HtmlNode {
-    fn box_it(self) -> Box<HtmlNode> {
+impl Boxable<HtmlNode> for HtmlNode {
+    fn to_box(self) -> Box<HtmlNode> {
         Box::new(self)
     }
 }
-impl Boxer<HtmlNode> for Box<HtmlNode> {
-    fn box_it(self) -> Box<HtmlNode> {
+impl Boxable<HtmlNode> for Box<HtmlNode> {
+    fn to_box(self) -> Box<HtmlNode> {
         self
     }
 }
 
-impl Boxer<String> for i32 {
-    fn box_it(self) -> Box<String> {
+impl Boxable<String> for i32 {
+    fn to_box(self) -> Box<String> {
         Box::new(self.to_string())
     }
 }

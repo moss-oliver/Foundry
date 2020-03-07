@@ -58,15 +58,15 @@ pub fn run() -> Result<(), JsValue> {
                 </h2>
                 {x}
                 <div id="script">
-                    <div id="green-square" style="background-color: green" onClick=@on_click_event >
+                    <button id="green-square" onClick=@on_click_event >
                         <span>
                             Click me..!
                         </span>
-                    </div>
+                    </button>
                     
-                    <p>
+                    <p style="background-color: lime">
                         You've clicked the green square
-                        <span id="num-clicks">
+                        <span id="num-clicks" >
                             {ri.state.clicks}
                         </span>
                         times

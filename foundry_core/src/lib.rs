@@ -84,10 +84,10 @@ impl std::convert::From<&str> for Value {
     }
 }
 
-impl<S: 'static, F: Fn(CallbackInfo<S>) + 'static> std::convert::From<Rc<Event<S, F>>> for Value {
-    fn from(item: Rc<Event<S, F>>) -> Self {
-        let state = item.state.clone();
-        let action = item.action.clone();
+impl<S: 'static, F: Fn(CallbackInfo<S>) + 'static> std::convert::From<Event<S, F>> for Value {
+    fn from(item: Event<S, F>) -> Self {
+        let state = item.info.state.clone();
+        let action = item.info.action.clone();
 
         let func = move || {
             //let state = state_rc.clone();
@@ -96,20 +96,21 @@ impl<S: 'static, F: Fn(CallbackInfo<S>) + 'static> std::convert::From<Rc<Event<S
             action(ci);
         };
 
-        Value::Event((Rc::new(func), item.event_id))
+        Value::Event((Rc::new(func), item.info.event_id))
     }
 }
 
 static mut EVENT_ID_COUNTER: u64 = 0;
 
-pub struct Event<S, F: Fn(CallbackInfo<S>) + 'static> {
+/// Info shared amongst all instances of an event.
+struct EventInfo<STATE, F: Fn(CallbackInfo<STATE>) + 'static> {
     event_id: u64,
     action: Rc<F>,
-    state: Rc<State<S>>
+    state: Rc<State<STATE>>,
 }
 
-impl<S, F: Fn(CallbackInfo<S>) + 'static> Event<S, F> {
-    pub fn new(state: &Rc<State<S>>, action: F) -> Rc<Event<S, F>> {
+impl<STATE, F: Fn(CallbackInfo<STATE>) + 'static> EventInfo<STATE, F> {
+    pub fn new(state: &Rc<State<STATE>>, action: F) -> EventInfo<STATE, F> {
         let event_id;
         
         //TODO: remove this unsafe.
@@ -118,7 +119,23 @@ impl<S, F: Fn(CallbackInfo<S>) + 'static> Event<S, F> {
             EVENT_ID_COUNTER += 1;
         }
 
-        Rc::new(Event { event_id, action: Rc::new(action), state: state.clone() })
+        EventInfo { event_id, action: Rc::new(action), state: state.clone() }
+    }
+}
+
+pub struct Event<STATE, F: Fn(CallbackInfo<STATE>) + 'static> {
+    info: Rc<EventInfo<STATE, F>>,
+}
+
+impl<S, F: Fn(CallbackInfo<S>) + 'static> Event<S, F> {
+    pub fn new(state: &Rc<State<S>>, action: F) -> Event<S, F> {
+        Event{ info: Rc::new(EventInfo::new(state, action)) }
+    }
+}
+
+impl<S, F: Fn(CallbackInfo<S>) + 'static> Clone for Event<S, F> {
+    fn clone(&self) -> Self {
+        Event{ info: self.info.clone() }
     }
 }
 
@@ -156,12 +173,12 @@ impl<'a, K> DomIntoIterator for &'a Vec<K>
     }
 }
 
-pub struct CallbackInfo<'a, T> {
-    pub state: &'a State<T>
+pub struct CallbackInfo<'a, STATE> {
+    pub state: &'a State<STATE>
 }
 
-pub struct RenderInfo<'a, T> {
-    pub state: &'a T
+pub struct RenderInfo<'a, STATE> {
+    pub state: &'a STATE
 }
 
 pub trait Context { //TODO: this should have a better name.
