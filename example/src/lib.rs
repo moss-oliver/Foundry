@@ -1,6 +1,5 @@
 #[macro_use(html)]
 extern crate foundry_web;
-use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use foundry_core::{State, Component, Event};
 use foundry_web::HtmlNode;
@@ -21,7 +20,7 @@ pub fn run() -> Result<(), JsValue> {
         clicks: 0,
     };
 
-    let state = Rc::new(State::new(hws));
+    let state = State::new(hws);
 
     let on_click_event = Event::new(&state, move |ci| {
         let mut state = ci.state.get_mut(); // Creates a mutable reference to the state.

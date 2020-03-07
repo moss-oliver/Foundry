@@ -29,43 +29,63 @@ impl<'a, T> Drop for StateMutRef<'a, T> {
     }
 }
 
-pub struct State<T> {
+pub struct StateInfo<T> {
     value: RefCell<T>,
     listeners: RefCell<Vec<Box<dyn Fn(&T)>>>,
     invalidated: AtomicU32,
 }
 
-impl<T> State<T> {
-    pub fn new(value: T) -> State<T> {
-        State {
+impl<T> StateInfo<T> {
+    pub fn new(value: T) -> StateInfo<T> {
+        StateInfo {
             value: RefCell::new(value),
             listeners: RefCell::new(Vec::new()),
             invalidated: AtomicU32::new(0),
         }
     }
+}
+
+pub struct State<T> {
+    info: Rc<StateInfo<T>>
+}
+
+impl<T> State<T> {
+    pub fn new(value: T) -> State<T> {
+        State {
+            info: Rc::new(StateInfo::new(value))
+        }
+    }
 
     fn bind(&self, render_count: u32, callback: Box<dyn Fn(&T)>) {
-        self.invalidated.store(render_count, Ordering::Relaxed);
-        self.listeners.borrow_mut().push(callback);
+        self.info.invalidated.store(render_count, Ordering::Relaxed);
+        self.info.listeners.borrow_mut().push(callback);
     }
 
     pub fn get_mut(&self) -> StateMutRef<T> {
-        let guard = self.value.borrow_mut();
+        let guard = self.info.value.borrow_mut();
         StateMutRef {
             owner: &self,
             guard: guard
         }
     }
+
     pub fn get(&self) -> Ref<'_, T> {
-        self.value.borrow()
+        self.info.value.borrow()
     }
     fn invalidate(&self, state: &T) {
-        self.invalidated.fetch_add(1, Ordering::Relaxed);
-        for listener in self.listeners.borrow().iter() {
+        self.info.invalidated.fetch_add(1, Ordering::Relaxed);
+        for listener in self.info.listeners.borrow().iter() {
             listener(state);
         }
     }
 }
+
+impl<T> Clone for State<T> {
+    fn clone(&self) -> Self {
+        State{ info: self.info.clone() }
+    }
+}
+
 
 pub enum Value {
     Str(String),
@@ -106,11 +126,11 @@ static mut EVENT_ID_COUNTER: u64 = 0;
 struct EventInfo<STATE, F: Fn(CallbackInfo<STATE>) + 'static> {
     event_id: u64,
     action: Rc<F>,
-    state: Rc<State<STATE>>,
+    state: State<STATE>,
 }
 
 impl<STATE, F: Fn(CallbackInfo<STATE>) + 'static> EventInfo<STATE, F> {
-    pub fn new(state: &Rc<State<STATE>>, action: F) -> EventInfo<STATE, F> {
+    pub fn new(state: &State<STATE>, action: F) -> EventInfo<STATE, F> {
         let event_id;
         
         //TODO: remove this unsafe.
@@ -128,7 +148,7 @@ pub struct Event<STATE, F: Fn(CallbackInfo<STATE>) + 'static> {
 }
 
 impl<S, F: Fn(CallbackInfo<S>) + 'static> Event<S, F> {
-    pub fn new(state: &Rc<State<S>>, action: F) -> Event<S, F> {
+    pub fn new(state: &State<S>, action: F) -> Event<S, F> {
         Event{ info: Rc::new(EventInfo::new(state, action)) }
     }
 }
@@ -189,16 +209,16 @@ pub trait Context { //TODO: this should have a better name.
 }
 pub struct Component<CONTEXT: Context, STATE> {
     context: Rc<RefCell<Option<CONTEXT>>>,
-    state: Rc<State<STATE>>,
+    state: State<STATE>,
     render_func: Box<dyn Fn(RenderInfo<STATE>) -> Box<dyn DomNode<CONTEXT::Node>>>,
     last_redraw: AtomicU32
 }
 
 impl<C: Context + 'static,
      S: 'static> Component<C, S> {
-    pub fn new(state_obj: S, render_func: impl Fn(RenderInfo<S>) -> Box<dyn DomNode<C::Node>> + 'static) -> (Rc<State<S>>, Rc<Component::<C, S>>) {
+    pub fn new(state_obj: S, render_func: impl Fn(RenderInfo<S>) -> Box<dyn DomNode<C::Node>> + 'static) -> (State<S>, Rc<Component::<C, S>>) {
         let last_redraw = 0;
-        let state = Rc::new(State::new(state_obj));
+        let state = State::new(state_obj);
 
         let component = Rc::new(Component {
             context: Rc::new(RefCell::new(Option::None)),
@@ -215,7 +235,7 @@ impl<C: Context + 'static,
         (state.clone(), component)
     }
 
-    pub fn from_state(state: Rc<State<S>>, render_func: impl Fn(RenderInfo<S>) -> Box<dyn DomNode<C::Node>> + 'static) -> Rc<Component::<C, S>> {
+    pub fn from_state(state: State<S>, render_func: impl Fn(RenderInfo<S>) -> Box<dyn DomNode<C::Node>> + 'static) -> Rc<Component::<C, S>> {
         let last_redraw = 0;
 
         let component = Rc::new(Component {
@@ -238,13 +258,13 @@ impl<C: Context + 'static,
             let mut x = self.context.borrow_mut();
             std::mem::replace(&mut *x, Option::Some(context));
         }
-        let s = &*self.state.as_ref().get();
+        let s = &*self.state.get();
         self.state.invalidate(s);
         //self.redraw();
     }
 
     fn redraw(&self, state: &S) {
-        let invalidated_number = self.state.invalidated.load(Ordering::Relaxed);
+        let invalidated_number = self.state.info.invalidated.load(Ordering::Relaxed);
         if self.last_redraw.swap(invalidated_number, Ordering::Relaxed) < invalidated_number {
             let ri = RenderInfo {state};
             let root = (self.render_func)(ri);
@@ -267,8 +287,7 @@ impl<C: Context + 'static,
 
 impl<C: Context<Node=String>, S> Component<C, S> {
     pub fn render_to_string(&self) -> String {
-        let s = self.state.as_ref();
-        let g = s.get();
+        let g = self.state.get();
         let ri = RenderInfo {state: &*g};
 
         let root = (self.render_func)(ri);
