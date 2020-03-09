@@ -104,9 +104,9 @@ impl std::convert::From<&str> for Value {
     }
 }
 
-impl<S: 'static, F: Fn(CallbackInfo<S>) + 'static> std::convert::From<Event<S, F>> for Value {
-    fn from(item: Event<S, F>) -> Self {
-        let state = item.info.state.clone();
+impl<STATE: 'static, F: Fn(CallbackInfo<STATE>) + 'static> std::convert::From<EventInstance<STATE, F>> for Value {
+    fn from(item: EventInstance<STATE, F>) -> Self {
+        let state = item.state.clone();
         let action = item.info.action.clone();
 
         let func = move || {
@@ -126,11 +126,11 @@ static mut EVENT_ID_COUNTER: u64 = 0;
 struct EventInfo<STATE, F: Fn(CallbackInfo<STATE>) + 'static> {
     event_id: u64,
     action: Rc<F>,
-    state: State<STATE>,
+    _phantom: std::marker::PhantomData<STATE>,
 }
 
 impl<STATE, F: Fn(CallbackInfo<STATE>) + 'static> EventInfo<STATE, F> {
-    pub fn new(state: &State<STATE>, action: F) -> EventInfo<STATE, F> {
+        pub fn new(action: F) -> EventInfo<STATE, F> {
         let event_id;
         
         //TODO: remove this unsafe.
@@ -139,7 +139,7 @@ impl<STATE, F: Fn(CallbackInfo<STATE>) + 'static> EventInfo<STATE, F> {
             EVENT_ID_COUNTER += 1;
         }
 
-        EventInfo { event_id, action: Rc::new(action), state: state.clone() }
+        EventInfo { event_id, action: Rc::new(action), _phantom: std::marker::PhantomData {} }
     }
 }
 
@@ -147,17 +147,26 @@ pub struct Event<STATE, F: Fn(CallbackInfo<STATE>) + 'static> {
     info: Rc<EventInfo<STATE, F>>,
 }
 
-impl<S, F: Fn(CallbackInfo<S>) + 'static> Event<S, F> {
-    pub fn new(state: &State<S>, action: F) -> Event<S, F> {
-        Event{ info: Rc::new(EventInfo::new(state, action)) }
+impl<STATE, F: Fn(CallbackInfo<STATE>) + 'static> Event<STATE, F> {
+    pub fn new(action: F) -> Event<STATE, F> {
+        Event{ info: Rc::new(EventInfo::new(action)) }
+    }
+
+    pub fn instantiate(&self, state: State<STATE>) -> EventInstance<STATE, F> {
+        EventInstance { state, info: self.info.clone() }
     }
 }
 
-impl<S, F: Fn(CallbackInfo<S>) + 'static> Clone for Event<S, F> {
+pub struct EventInstance<STATE, F: Fn(CallbackInfo<STATE>) + 'static> {
+    state: State<STATE>,
+    info: Rc<EventInfo<STATE, F>>,
+}
+
+/*impl<STATE, F: Fn(CallbackInfo<STATE>) + 'static> Clone for Event<STATE, F> {
     fn clone(&self) -> Self {
         Event{ info: self.info.clone() }
     }
-}
+}*/
 
 pub trait DomNode<T> {
     fn get_children<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item= &'a Box<dyn DomNode<T>>> + 'a>;
@@ -198,78 +207,80 @@ pub struct CallbackInfo<'a, STATE> {
 }
 
 pub struct RenderInfo<'a, STATE> {
-    pub state: &'a STATE
+    pub state: &'a STATE,
+    pub state_ref: State<STATE>,
 }
 
-pub trait Context { //TODO: this should have a better name.
+pub trait Context: 'static { //TODO: this should have a better name.
     type Node: std::cmp::Eq + std::fmt::Debug;
+
     fn set_recent_tree(&mut self, tree: Option<Box<dyn DomNode<Self::Node>>>);
     fn get_recent_tree(&self) -> Option<&Box<dyn DomNode<Self::Node>>>;
     fn commit_changes(&mut self, changes: Vec<ReconciliationNote<Self::Node>>);
 }
-pub struct Component<CONTEXT: Context, STATE> {
+
+pub struct ComponentFactory<CONTEXT: Context, STATE> {
+    render_func: Rc<dyn Fn(RenderInfo<STATE>) -> Box<dyn DomNode<CONTEXT::Node>>>,
+}
+
+impl<CONTEXT: Context, STATE: 'static> ComponentFactory<CONTEXT, STATE> {
+    pub fn new(render_func: impl Fn(RenderInfo<STATE>) -> Box<dyn DomNode<CONTEXT::Node>> + 'static) -> ComponentFactory<CONTEXT, STATE> {
+        ComponentFactory { render_func: Rc::new(render_func) }
+    }
+
+    pub fn instantiate(&self, state: State<STATE>) -> Component<CONTEXT, STATE> {
+        Component::from_factory(state, self)
+    }
+}
+
+struct ComponentInfo<CONTEXT: Context, STATE> {
     context: Rc<RefCell<Option<CONTEXT>>>,
     state: State<STATE>,
-    render_func: Box<dyn Fn(RenderInfo<STATE>) -> Box<dyn DomNode<CONTEXT::Node>>>,
+    render_func: Rc<dyn Fn(RenderInfo<STATE>) -> Box<dyn DomNode<CONTEXT::Node>>>,
     last_redraw: AtomicU32
 }
 
-impl<C: Context + 'static,
-     S: 'static> Component<C, S> {
-    pub fn new(state_obj: S, render_func: impl Fn(RenderInfo<S>) -> Box<dyn DomNode<C::Node>> + 'static) -> (State<S>, Rc<Component::<C, S>>) {
-        let last_redraw = 0;
-        let state = State::new(state_obj);
+pub struct Component<CONTEXT: Context, STATE> {
+    info: Rc<ComponentInfo<CONTEXT, STATE>>,
+}
 
-        let component = Rc::new(Component {
+impl<CONTEXT: Context + 'static, STATE: 'static> Component<CONTEXT, STATE> {
+    pub fn from_factory(state: State<STATE>, factory: &ComponentFactory<CONTEXT, STATE>) -> Component::<CONTEXT, STATE> {
+        let last_redraw = 0;
+
+        let component = Component{info: Rc::new(ComponentInfo {
             context: Rc::new(RefCell::new(Option::None)),
             state: state.clone(),
-            render_func: Box::new(render_func),
+            render_func: factory.render_func.clone(),
             last_redraw: AtomicU32::new(last_redraw),
-        });
+        })};
 
         let component_clone = component.clone();
         state.bind(last_redraw + 1, Box::new(move |s| {
             component_clone.redraw(s);
         }));
 
-        (state.clone(), component)
-    }
-
-    pub fn from_state(state: State<S>, render_func: impl Fn(RenderInfo<S>) -> Box<dyn DomNode<C::Node>> + 'static) -> Rc<Component::<C, S>> {
-        let last_redraw = 0;
-
-        let component = Rc::new(Component {
-            context: Rc::new(RefCell::new(Option::None)),
-            state: state.clone(),
-            render_func: Box::new(render_func),
-            last_redraw: AtomicU32::new(last_redraw),
-        });
-
-        let component_clone = component.clone();
-        state.bind(last_redraw + 1, Box::new(move |s| {
-            component_clone.clone().redraw(s);
-        }));
-
         component
     }
 
-    pub fn bind_context(&self, context: C) {
+    pub fn bind_context(&self, context: CONTEXT) {
         {
-            let mut x = self.context.borrow_mut();
+            let mut x = self.info.context.borrow_mut();
             std::mem::replace(&mut *x, Option::Some(context));
         }
-        let s = &*self.state.get();
-        self.state.invalidate(s);
+        let s = &*self.info.state.get();
+        self.info.state.invalidate(s);
         //self.redraw();
     }
 
-    fn redraw(&self, state: &S) {
-        let invalidated_number = self.state.info.invalidated.load(Ordering::Relaxed);
-        if self.last_redraw.swap(invalidated_number, Ordering::Relaxed) < invalidated_number {
-            let ri = RenderInfo {state};
-            let root = (self.render_func)(ri);
+    fn redraw(&self, state: &STATE) {
+        let state_ref = self.info.state.clone();
+        let invalidated_number = self.info.state.info.invalidated.load(Ordering::Relaxed);
+        if self.info.last_redraw.swap(invalidated_number, Ordering::Relaxed) < invalidated_number {
+            let ri = RenderInfo {state, state_ref};
+            let root = (self.info.render_func)(ri);
             
-            let context = &mut *self.context.borrow_mut();
+            let context = &mut *self.info.context.borrow_mut();
             match context {
                 Some(c) => {
                     let change_list = reconcile_tree(c.get_recent_tree(), &root);
@@ -285,12 +296,19 @@ impl<C: Context + 'static,
     }
 }
 
-impl<C: Context<Node=String>, S> Component<C, S> {
-    pub fn render_to_string(&self) -> String {
-        let g = self.state.get();
-        let ri = RenderInfo {state: &*g};
+impl<CONTEXT: Context, STATE> Clone for Component<CONTEXT, STATE> {
+    fn clone(&self) -> Self {
+        Component{ info: self.info.clone() }
+    }
+}
 
-        let root = (self.render_func)(ri);
+impl<CONTEXT: Context<Node=String>, STATE> Component<CONTEXT, STATE> {
+    pub fn render_to_string(&self) -> String {
+        let state_ref = self.info.state.clone();
+        let g = self.info.state.get();
+        let ri = RenderInfo {state: &*g, state_ref};
+
+        let root = (self.info.render_func)(ri);
 
         let x = root.get_inner().clone();
         return x.get_inner();

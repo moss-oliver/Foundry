@@ -132,7 +132,7 @@ fn html_attr_parse(item_iter: &mut dyn Iterator<Item=TokenTree>, attr_name: Stri
             if punct.as_char() == '@' {
                 let lit = item_iter.next();
                 if let Some(Ident(lit_val)) = lit {
-                    output.push_str(&format!("(\"{}\", {}.clone().into())", attr_name, lit_val.to_string()));
+                    output.push_str(&format!("(\"{}\", {}.instantiate(ri.state_ref).into())", attr_name, lit_val.to_string()));
                 }
                 else {
                     panic!("Unexpected token: {:?}", lit)
