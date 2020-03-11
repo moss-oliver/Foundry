@@ -1,28 +1,27 @@
 #[macro_use(html)]
 extern crate foundry_web;
 use wasm_bindgen::prelude::*;
-use foundry_core::{ComponentFactory, State, Component, Event, CallbackInfo, RenderInfo};
+use foundry_core::{ComponentFactory, Event, CallbackInfo, RenderInfo};
 use foundry_web::{HtmlNode, WebContext};
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     // Create web context.
     let context = foundry_web::create_context("content")?;
-
-    /*struct ButtonState {
-    }
-    let button = ComponentFactory::<WebContext, ButtonState>::new(move |ri| {
-        html!(
-            <button>
-                Press me.
-            </button>
-        )
-    });*/
-
+    
     // Define component state.
     struct HelloWorldState {
         title: String,
         clicks: i32
+    }
+
+    impl std::default::Default for HelloWorldState {
+        fn default() -> Self {
+            HelloWorldState {
+                title: "Hello, world!".to_string(),
+                clicks: 0,
+            }
+        }
     }
 
     let on_click_event = Event::new(move |ci: CallbackInfo<HelloWorldState>| {
@@ -50,7 +49,7 @@ pub fn run() -> Result<(), JsValue> {
                 </div>
             )
         };
-
+        
         // A macro that is evaluated and transformed to Rust code at compile time.
         html!(
             <div>
@@ -59,7 +58,7 @@ pub fn run() -> Result<(), JsValue> {
                 </h2>
                 {x}
                 <div id="script">
-                    <button id="green-square" onClick=@on_click_event >
+                    <button id="green-square" onClick=@on_click_event(ri) >
                         <span>
                             Click me..!
                         </span>
@@ -77,16 +76,9 @@ pub fn run() -> Result<(), JsValue> {
         )
     });
 
-    let hws = HelloWorldState {
-        title: "Hello, world!".to_string(),
-        clicks: 0,
-    };
-
-    let state = State::new(hws);
-
     // Create new component. We provide a state instance, and a closure that is executed when the state changes.
-    let root = Component::from_factory(state.clone(), &factory);
-
+    let root = factory.instantiate();
+    
     root.bind_context(context);
     Ok(())
 }

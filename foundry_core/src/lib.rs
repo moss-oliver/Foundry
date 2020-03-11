@@ -104,7 +104,7 @@ impl std::convert::From<&str> for Value {
     }
 }
 
-impl<STATE: 'static, F: Fn(CallbackInfo<STATE>) + 'static> std::convert::From<EventInstance<STATE, F>> for Value {
+impl<STATE: Default + 'static, F: Fn(CallbackInfo<STATE>) + 'static> std::convert::From<EventInstance<STATE, F>> for Value {
     fn from(item: EventInstance<STATE, F>) -> Self {
         let state = item.state.clone();
         let action = item.info.action.clone();
@@ -147,7 +147,7 @@ pub struct Event<STATE, F: Fn(CallbackInfo<STATE>) + 'static> {
     info: Rc<EventInfo<STATE, F>>,
 }
 
-impl<STATE, F: Fn(CallbackInfo<STATE>) + 'static> Event<STATE, F> {
+impl<STATE: Default, F: Fn(CallbackInfo<STATE>) + 'static> Event<STATE, F> {
     pub fn new(action: F) -> Event<STATE, F> {
         Event{ info: Rc::new(EventInfo::new(action)) }
     }
@@ -157,7 +157,7 @@ impl<STATE, F: Fn(CallbackInfo<STATE>) + 'static> Event<STATE, F> {
     }
 }
 
-pub struct EventInstance<STATE, F: Fn(CallbackInfo<STATE>) + 'static> {
+pub struct EventInstance<STATE: Default, F: Fn(CallbackInfo<STATE>) + 'static> {
     state: State<STATE>,
     info: Rc<EventInfo<STATE, F>>,
 }
@@ -228,8 +228,12 @@ impl<CONTEXT: Context, STATE: 'static> ComponentFactory<CONTEXT, STATE> {
         ComponentFactory { render_func: Rc::new(render_func) }
     }
 
-    pub fn instantiate(&self, state: State<STATE>) -> Component<CONTEXT, STATE> {
-        Component::from_factory(state, self)
+    pub fn instantiate_with_state(&self, state: STATE) -> Component<CONTEXT, STATE> {
+        Component::from_factory_with_state(State::new(state), self)
+    }
+
+    pub fn instantiate(&self) -> Component<CONTEXT, STATE> where STATE: Default {
+        Component::from_factory(self)
     }
 }
 
@@ -245,7 +249,12 @@ pub struct Component<CONTEXT: Context, STATE> {
 }
 
 impl<CONTEXT: Context + 'static, STATE: 'static> Component<CONTEXT, STATE> {
-    pub fn from_factory(state: State<STATE>, factory: &ComponentFactory<CONTEXT, STATE>) -> Component::<CONTEXT, STATE> {
+    pub fn from_factory(factory: &ComponentFactory<CONTEXT, STATE>) -> Component::<CONTEXT, STATE> where STATE: Default {
+        let state = State::new(STATE::default());
+        Self::from_factory_with_state(state, factory)
+    }
+
+    pub fn from_factory_with_state(state: State<STATE>, factory: &ComponentFactory<CONTEXT, STATE>) -> Component::<CONTEXT, STATE> {
         let last_redraw = 0;
 
         let component = Component{info: Rc::new(ComponentInfo {
@@ -302,7 +311,7 @@ impl<CONTEXT: Context, STATE> Clone for Component<CONTEXT, STATE> {
     }
 }
 
-impl<CONTEXT: Context<Node=String>, STATE> Component<CONTEXT, STATE> {
+impl<CONTEXT: Context<Node=String>, STATE: Default> Component<CONTEXT, STATE> {
     pub fn render_to_string(&self) -> String {
         let state_ref = self.info.state.clone();
         let g = self.info.state.get();
