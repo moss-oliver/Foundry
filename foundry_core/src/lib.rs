@@ -3,35 +3,37 @@ use std::ops::DerefMut;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::rc::{Rc};
 use std::cell::{RefCell, Ref, RefMut};
+use wasm_bindgen::prelude::*;
 
 pub struct StateMutRef<'a, T> {
     owner: &'a State<T>,
-    guard: RefMut<'a, T>,
+    guard: Option<RefMut<'a, T>>,
 }
 
 impl<'a, T> Deref for StateMutRef<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        self.guard.deref()
+        self.guard.as_ref().unwrap().deref()
     }
 }
 
 impl<'a, T> DerefMut for StateMutRef<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.guard.deref_mut()
+        self.guard.as_mut().unwrap().deref_mut()
     }
 }
 
 impl<'a, T> Drop for StateMutRef<'a, T> {
     fn drop(&mut self) {
-        self.owner.invalidate(&mut *self.guard)
+        self.guard = Option::None;
+        self.owner.invalidate()
     }
 }
 
 pub struct StateInfo<T> {
     value: RefCell<T>,
-    listeners: RefCell<Vec<Box<dyn Fn(&T)>>>,
+    listeners: RefCell<Vec<Box<dyn Fn()>>>,
     invalidated: AtomicU32,
 }
 
@@ -56,7 +58,7 @@ impl<T> State<T> {
         }
     }
 
-    fn bind(&self, render_count: u32, callback: Box<dyn Fn(&T)>) {
+    fn bind(&self, render_count: u32, callback: Box<dyn Fn()>) {
         self.info.invalidated.store(render_count, Ordering::Relaxed);
         self.info.listeners.borrow_mut().push(callback);
     }
@@ -65,17 +67,17 @@ impl<T> State<T> {
         let guard = self.info.value.borrow_mut();
         StateMutRef {
             owner: &self,
-            guard: guard
+            guard: Some(guard)
         }
     }
 
     pub fn get(&self) -> Ref<'_, T> {
         self.info.value.borrow()
     }
-    fn invalidate(&self, state: &T) {
+    fn invalidate(&self) {
         self.info.invalidated.fetch_add(1, Ordering::Relaxed);
         for listener in self.info.listeners.borrow().iter() {
-            listener(state);
+            listener();
         }
     }
 }
@@ -110,7 +112,6 @@ impl<STATE: Default + 'static, F: Fn(CallbackInfo<STATE>) + 'static> std::conver
         let action = item.info.action.clone();
 
         let func = move || {
-            //let state = state_rc.clone();
             let ci = CallbackInfo{state: &state};
 
             action(ci);
@@ -161,12 +162,6 @@ pub struct EventInstance<STATE: Default, F: Fn(CallbackInfo<STATE>) + 'static> {
     state: State<STATE>,
     info: Rc<EventInfo<STATE, F>>,
 }
-
-/*impl<STATE, F: Fn(CallbackInfo<STATE>) + 'static> Clone for Event<STATE, F> {
-    fn clone(&self) -> Self {
-        Event{ info: self.info.clone() }
-    }
-}*/
 
 pub trait DomNode<T> {
     fn get_children<'a>(&'a self) -> Box<dyn ExactSizeIterator<Item= &'a Box<dyn DomNode<T>>> + 'a>;
@@ -220,11 +215,11 @@ pub trait Context: 'static { //TODO: this should have a better name.
 }
 
 pub struct ComponentFactory<CONTEXT: Context, STATE> {
-    render_func: Rc<dyn Fn(RenderInfo<STATE>) -> Box<dyn DomNode<CONTEXT::Node>>>,
+    render_func: Rc<dyn Fn(&RenderInfo<STATE>) -> Box<dyn DomNode<CONTEXT::Node>>>,
 }
 
 impl<CONTEXT: Context, STATE: 'static> ComponentFactory<CONTEXT, STATE> {
-    pub fn new(render_func: impl Fn(RenderInfo<STATE>) -> Box<dyn DomNode<CONTEXT::Node>> + 'static) -> ComponentFactory<CONTEXT, STATE> {
+    pub fn new(render_func: impl Fn(&RenderInfo<STATE>) -> Box<dyn DomNode<CONTEXT::Node>> + 'static) -> ComponentFactory<CONTEXT, STATE> {
         ComponentFactory { render_func: Rc::new(render_func) }
     }
 
@@ -240,7 +235,7 @@ impl<CONTEXT: Context, STATE: 'static> ComponentFactory<CONTEXT, STATE> {
 struct ComponentInfo<CONTEXT: Context, STATE> {
     context: Rc<RefCell<Option<CONTEXT>>>,
     state: State<STATE>,
-    render_func: Rc<dyn Fn(RenderInfo<STATE>) -> Box<dyn DomNode<CONTEXT::Node>>>,
+    render_func: Rc<dyn Fn(&RenderInfo<STATE>) -> Box<dyn DomNode<CONTEXT::Node>>>,
     last_redraw: AtomicU32
 }
 
@@ -265,10 +260,9 @@ impl<CONTEXT: Context + 'static, STATE: 'static> Component<CONTEXT, STATE> {
         })};
 
         let component_clone = component.clone();
-        state.bind(last_redraw + 1, Box::new(move |s| {
-            component_clone.redraw(s);
+        state.bind(last_redraw + 1, Box::new(move || {
+            component_clone.redraw();
         }));
-
         component
     }
 
@@ -277,18 +271,21 @@ impl<CONTEXT: Context + 'static, STATE: 'static> Component<CONTEXT, STATE> {
             let mut x = self.info.context.borrow_mut();
             std::mem::replace(&mut *x, Option::Some(context));
         }
-        let s = &*self.info.state.get();
-        self.info.state.invalidate(s);
-        //self.redraw();
+        self.info.state.invalidate();
+        
     }
 
-    fn redraw(&self, state: &STATE) {
+    pub fn get_rendered_tree(&self) -> Box<dyn DomNode<CONTEXT::Node>> {
         let state_ref = self.info.state.clone();
+        let ri = RenderInfo {state: &*self.info.state.get(), state_ref};
+        (self.info.render_func)(&ri)
+    }
+
+    fn redraw(&self) {
         let invalidated_number = self.info.state.info.invalidated.load(Ordering::Relaxed);
         if self.info.last_redraw.swap(invalidated_number, Ordering::Relaxed) < invalidated_number {
-            let ri = RenderInfo {state, state_ref};
-            let root = (self.info.render_func)(ri);
-            
+            let root = self.get_rendered_tree();
+
             let context = &mut *self.info.context.borrow_mut();
             match context {
                 Some(c) => {
@@ -297,7 +294,7 @@ impl<CONTEXT: Context + 'static, STATE: 'static> Component<CONTEXT, STATE> {
                     c.set_recent_tree(Some(root))
                 },
                 None => {
-                    //TODO: remove this panic.
+                    //TODO: investigate removing this panic.
                     panic!("No context found.");
                 }
             }
@@ -317,7 +314,7 @@ impl<CONTEXT: Context<Node=String>, STATE: Default> Component<CONTEXT, STATE> {
         let g = self.info.state.get();
         let ri = RenderInfo {state: &*g, state_ref};
 
-        let root = (self.info.render_func)(ri);
+        let root = (self.info.render_func)(&ri);
 
         let x = root.get_inner().clone();
         return x.get_inner();
@@ -415,7 +412,6 @@ fn reconcile_tree<T: std::cmp::PartialEq + std::cmp::Eq + std::fmt::Debug>(base:
     }
     list
 }
-
 
 
 

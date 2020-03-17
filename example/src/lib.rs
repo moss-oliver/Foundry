@@ -6,9 +6,7 @@ use foundry_web::{HtmlNode, WebContext};
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
-    // Create web context.
-    let context = foundry_web::create_context("content")?;
-    
+
     // Define component state.
     struct HelloWorldState {
         title: String,
@@ -34,7 +32,7 @@ pub fn run() -> Result<(), JsValue> {
         // and this component is marked for re-rendering.
     });
 
-    let factory = ComponentFactory::new(move |ri: RenderInfo<'_, HelloWorldState>| {
+    let root = ComponentFactory::new(move |ri: &RenderInfo<'_, HelloWorldState>| {
         let x = if ri.state.clicks > 3 {
             html!(
                 <div>
@@ -49,7 +47,7 @@ pub fn run() -> Result<(), JsValue> {
                 </div>
             )
         };
-        
+
         // A macro that is evaluated and transformed to Rust code at compile time.
         html!(
             <div>
@@ -63,9 +61,9 @@ pub fn run() -> Result<(), JsValue> {
                             Click me..!
                         </span>
                     </button>
-                    
+
                     <p style="background-color: lime">
-                        You've clicked the green square
+                        You've clicked the button
                         <span id="num-clicks" >
                             {ri.state.clicks}
                         </span>
@@ -76,9 +74,10 @@ pub fn run() -> Result<(), JsValue> {
         )
     });
 
-    // Create new component. We provide a state instance, and a closure that is executed when the state changes.
-    let root = factory.instantiate();
+    // Create web context.
+    let context = foundry_web::create_context("content")?;
     
-    root.bind_context(context);
+    // Instantiate the root component, and bind it to the web context.
+    root.instantiate().bind_context(context);
     Ok(())
 }

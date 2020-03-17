@@ -6,32 +6,53 @@ use proc_macro::TokenTree;
 use proc_macro::TokenTree::*;
 
 // div>
-fn html_end_tag(item_iter: &mut dyn Iterator<Item=TokenTree>, tag: String, output: &mut String) {
+fn html_end_tag(item_iter: &mut dyn Iterator<Item=TokenTree>, tag: String, output: &mut String, component: bool) {
     output.push_str(")))");
     let token_get = item_iter.next();
+
+    let found_name;
     match token_get {
         Some(Ident(tag_name)) => {
-            if tag == tag_name.to_string() {
-
-                let token_get = item_iter.next();
-                match token_get {
-                    Some(Punct(tag_end)) => {
-                        if tag_end.as_char() != '>' {
-                            panic!("Unexpected token 1");
-                        }
-                    }
-                    _ => { panic!("Unexpected token 2."); }
-                }
+            if component == false {
+                found_name = tag_name.to_string();
             } else {
-                panic!("Tags don't match: {}", tag);
+                panic!("Expected token: @");
             }
         }
+        Some(Punct(prefix)) => {
+            if component == false {
+                panic!("expected identifier. Found: {}", prefix.as_char());
+            } else if prefix.as_char() == '@' {
+                let token_get = item_iter.next();
+                if let Some(Ident(tag_name)) = token_get {
+                    found_name = tag_name.to_string();
+                } else {
+                    panic!("Expected identifier.");
+                }
+            } else {
+                panic!("Expected token: @");
+            }
+        },
         _ => {panic!("Unexpected token 3.");}
+    }
+
+    if tag == found_name {
+        let token_get = item_iter.next();
+        match token_get {
+            Some(Punct(tag_end)) => {
+                if tag_end.as_char() != '>' {
+                    panic!("Unexpected token 1");
+                }
+            }
+            _ => { panic!("Unexpected token 2."); }
+        }
+    } else {
+        panic!("Tags don't match: {}", tag);
     }
 }
 
 //"..."</ OR </
-fn html_tag_content(item_iter: &mut dyn Iterator<Item=TokenTree>, tag: String, output: &mut String) {
+fn html_tag_content(item_iter: &mut dyn Iterator<Item=TokenTree>, tag: String, output: &mut String, component: bool) {
     let mut looping = true;
     let mut first_child = true;
     let mut in_string = false;
@@ -50,10 +71,16 @@ fn html_tag_content(item_iter: &mut dyn Iterator<Item=TokenTree>, tag: String, o
                     match token_get {
                         Some(Punct(tag_end)) => {
                             if tag_end.as_char() == '/' {
-                                html_end_tag(item_iter, tag.clone(), output);
+                                html_end_tag(item_iter, tag.clone(), output, component);
                                 looping = false;
-                            } else if tag_end.as_char() == '/' {
-                                html_end_tag(item_iter, tag.clone(), output);
+                            } else if tag_end.as_char() == '@' {
+                                println!("Tag open: {}", tag);
+                                if let Some(Ident(tag)) = item_iter.next() {
+                                    if !first_child {
+                                        output.push_str(",");
+                                    }
+                                    html_open_tag(item_iter, tag.to_string(), output, true);
+                                }
                             } else {
                                 panic!("Unexpected token: {}", tag_end);
                             }
@@ -62,7 +89,7 @@ fn html_tag_content(item_iter: &mut dyn Iterator<Item=TokenTree>, tag: String, o
                             if !first_child {
                                 output.push_str(",");
                             }
-                            html_open_tag(item_iter, tag_name.to_string(), output);
+                            html_open_tag(item_iter, tag_name.to_string(), output, false);
                         }
                         _ => { panic!("Unexpected token 4.") }
                     }
@@ -104,9 +131,6 @@ fn html_tag_content(item_iter: &mut dyn Iterator<Item=TokenTree>, tag: String, o
                     output.push_str(",");
                 }
 
-                /*output.push_str("Box::new(format!(\"{}\", ");
-                output.push_str(&group.stream().to_string());
-                output.push_str("))");*/
                 output.push_str("foundry_web::Boxable::to_box(");
                 output.push_str(&group.stream().to_string());
                 output.push_str(")");
@@ -140,28 +164,11 @@ fn html_attr_parse(item_iter: &mut dyn Iterator<Item=TokenTree>, attr_name: Stri
                     
                     let lit = item_iter.next();
                     if let Some(Group(lit_val)) = lit {
-                        /*if lit_val.to_string() == '(' {
-                            let lit = item_iter.next();
-                            if let Some(Ident(lit_val)) = lit {
-                                output.push_str(&lit_val.to_string());
-                                let lit = item_iter.next();
-                                if let Some(Punct(lit_val)) = lit {
-                                    if lit_val.as_char() != ')' {
-                                        panic!("Unexpected token a: {:?}", lit_val);
-                                    }
-                                } else {
-                                    panic!("Unexpected token b: {:?}", lit_val);
-                                }
-                            }
-                        } else {
-                            panic!("Unexpected token c: {:?}", lit_val);
-                        }*/
-                        //panic!("Token group: {:?}", lit_val);
                         output.push_str(&lit_val.to_string());
                     } else {
                         panic!("Unexpected token: {:?}", lit_val);
                     }
-                    output.push_str(&format!(".state_ref"));
+                    output.push_str(&format!(".state_ref.clone()"));
                     output.push_str(&format!(").into())"));
                 }
                 else {
@@ -177,8 +184,13 @@ fn html_attr_parse(item_iter: &mut dyn Iterator<Item=TokenTree>, attr_name: Stri
     }
 }
 
-fn html_open_tag(item_iter: &mut dyn Iterator<Item=TokenTree>, tag: String, output: &mut String) {
-    output.push_str(&format!("Box::new(HtmlNode::new(\"{}\", vec!(", tag));
+fn html_open_tag(item_iter: &mut dyn Iterator<Item=TokenTree>, tag: String, output: &mut String, component: bool) {
+    if component {
+        output.push_str(&format!("(({}.get_rendered_tree(", tag));
+    } else {
+        output.push_str(&format!("Box::new(HtmlNode::new(\"{}\", vec!(", tag));
+    }
+
     let mut looping = true;
     let mut first_attribute = true;
     while looping {
@@ -202,9 +214,11 @@ fn html_open_tag(item_iter: &mut dyn Iterator<Item=TokenTree>, tag: String, outp
             },
             Some(Punct(tag_end)) => {
                 if tag_end.as_char() == '>' {
-                    output.push_str("), vec!("); //TODO: include attributes.
+                    if component == false {
+                        output.push_str("), vec!("); //TODO: include attributes.
+                    }
                     looping = false;
-                    html_tag_content(item_iter, tag.clone(), output);
+                    html_tag_content(item_iter, tag.clone(), output, component);
                 } else {
                     panic!("Unexpected token: {}", tag_end);
                 }
@@ -224,7 +238,7 @@ fn html_parse(item_iter: &mut dyn Iterator<Item=TokenTree>, output: &mut String)
                     let token_get = item_iter.next();
                     match token_get {
                         Some(Ident(tag_name)) => {
-                            html_open_tag(item_iter, tag_name.to_string(), output);
+                            html_open_tag(item_iter, tag_name.to_string(), output, false);
                         }
                         _ => {panic!("Unexpected token 10.")}
                     }

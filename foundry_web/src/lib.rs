@@ -105,7 +105,7 @@ impl DomNode<HtmlNodeType> for String {
     }
 }
 
-pub trait Boxable<T: Sized> {
+pub trait Boxable<T: ?Sized> {
     fn to_box(self) -> Box<T>;
 }
 
@@ -119,19 +119,13 @@ impl Boxable<String> for &String {
         Box::new(self.clone())
     }
 }
-impl Boxable<String> for Box<String> {
-    fn to_box(self) -> Box<String> {
-        self
-    }
-}
-
 impl Boxable<HtmlNode> for HtmlNode {
     fn to_box(self) -> Box<HtmlNode> {
         Box::new(self)
     }
 }
-impl Boxable<HtmlNode> for Box<HtmlNode> {
-    fn to_box(self) -> Box<HtmlNode> {
+impl<T: DomNode<HtmlNodeType> + ?Sized> Boxable<T> for Box<T> {
+    fn to_box(self) -> Box<T> {
         self
     }
 }
